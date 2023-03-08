@@ -1,0 +1,345 @@
+---
+title: "Final Project: Churn Modelling for Banking"
+subtitle: 'Week 4'
+author: "Group 1"
+date: "2023-02-05"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+bibliography: /Users/SidAlashi/R_Projects/bibliography.bib
+biblio-style: apalike
+link-citations: yes
+---
+```{r}
+install.packages("rpart")
+install.packages("Metrics")
+install.packages("easypackages")
+install.packages("leaps")
+```
+
+# Load libraries
+```{r}
+my_packages = c("plyr", "corrplot", "plotly", "ggplot2", "psych", "tidyr", "tidyverse", "gridExtra", "caret", "MASS", "randomForest", "party", "readr", "class", "randomForest", "rpart", "rpart.plot", "Metrics", "easypackages","leaps")
+#install.packages(my_packages)
+lapply(my_packages, require, character.only = T)
+```
+
+# Dataset loading
+```{r}
+Churn_Modelling <- read.csv("Churn_Modelling-3.csv", header = T)
+cat("Number of Rows before cleanup:", nrow(Churn_Modelling), "\n") # Printing string and variable row count on the same line
+cat("Number of Columns before cleanup:", ncol(Churn_Modelling), "\n") 
+cat("Blank cells count before cleanup:", sum(!complete.cases(Churn_Modelling))) # Displaying Blank Cells Count for uncleaned data
+```
+ 
+# View(Churn_Modelling)
+```{r}
+Churn_Model <- Churn_Modelling  #(Used for Hypothesis Testing)
+```
+
+# Data Cleaning
+```{r}
+Churn_Modelling[,c('RowNumber', 'CustomerId', 'Surname', 'Geography')] <- NULL
+Churn_Modelling$Gender[Churn_Modelling$Gender=='Male'] <- 1
+Churn_Modelling$Gender[Churn_Modelling$Gender=='Female'] <- 0
+count(Churn_Modelling$Exited)
+hist(Churn_Modelling$Exited, col = "#c00000",xlim=c(0,1))
+y <- Churn_Modelling$Exited
+x_data <- Churn_Modelling
+```
+
+
+# x_data[,c('Exited')] <- NULL
+```{r}
+sapply(x_data,class)
+x_data$Gender <- as.numeric(x_data$Gender)
+x <- (x_data - min(x_data))/(max(x_data)-min(x_data))
+x
+summary(x_data)
+```
+
+# Training and Testing Data Split (70:30)
+```{r}
+set.seed(1) 
+row.number <- sample(x=1:nrow(x), size=0.7*nrow(x))
+x_train = x[row.number,]
+x_test = x[-row.number,]
+headTail(x_train, top = 4, bottom = 4, ellipsis = F)
+headTail(x_test, top = 4, bottom = 4, ellipsis = F)
+cat("Number of Rows in train dataset:", nrow(x_train), "\n") # Printing string and variable row count on the same line
+cat("Number of Rows in Test dataset:", nrow(x_test), "\n")
+```
+
+
+# Training and Testing Data Split on normal data
+```{r}
+set.seed(1) 
+row.number <- sample(x=1:nrow(x_data), size=0.7*nrow(x_data))
+train = x_data[row.number,]
+test = x_data[-row.number,]
+headTail(train, top = 4, bottom = 4, ellipsis = F)
+headTail(test, top = 4, bottom = 4, ellipsis = F)
+```
+
+# Descriptive Statis
+```{r}
+summary(x_data)
+```
+
+# Scatterplot
+```{r}
+scatter.smooth(x = x_data$Balance, y = x_data$EstimatedSalary,  main="Scatterplot with Regression Line", xlab="Balance", ylab="EstimatedSalary", col= "coral")
+scatter.smooth(x = x_data$CreditScore, y = x_data$Age,  main="Scatterplot with Regression Line", xlab="CreditScore", ylab="Age", col= "light blue")
+scatter.smooth(x = x_data$Balance, y = x_data$Age,  main="Scatterplot with Regression Line", xlab="Balance", ylab="Age", col= "yellow")
+scatter.smooth(x = x_data$CreditScore, y = x_data$Balance,  main="Scatterplot with Regression Line", xlab="CreditScore", ylab="Balance", col= "green")
+```
+
+# Density Plot
+```{r}
+density.Exited <- density(x_data$Exited)
+plot(density.Exited, main="Exited Density of Customers")
+polygon(density.Exited, col="#AE4371")
+```
+
+
+# Boxplot
+```{r}
+boxplot(x_data$CreditScore ~ x_data$Age, data = x_data, main="Boxplot", xlab="CreditScore", ylab="Age", col="#009999")
+boxplot(x_data$Balance ~ x_data$Age, data = x_data, main="Boxplot", xlab="Balance", ylab="Age",col="#2166AC")
+```
+
+
+# Hypothesis Testing
+# One Sample t-test - Is the credit score greater than 500?
+```{r}
+set.seed(1)
+onesample <- t.test(Churn_Model$CreditScore, mu = 500, alternative = "greater")
+onesample
+```
+
+# Two Sample t-test - Do males and females have the same credit scores?
+```{r}
+male_cust <- subset(Churn_Model, subset = (Churn_Model$Gender == 'Male'))
+female_cust <- subset(Churn_Model, subset = (Churn_Model$Gender == 'Female'))
+twosample <- t.test(male_cust$CreditScore,female_cust$CreditScore,data=Churn_Model,var.equal = TRUE)
+twosample
+```
+
+# Paired t-test - Did more males retain their banks accounts in comparison to the females?
+```{r}
+pairedtest <- t.test(male_cust$Exited, female_cust$Exited, alternative = "greater")
+pairedtest
+```
+
+# F-test - Test the variance of Estimated Salary in males and females?
+```{r}
+ftest <- var.test(male_cust$EstimatedSalary, female_cust$EstimatedSalary, data = Churn_Model, alternative = "less")
+ftest
+```
+
+# ANOVA
+```{r}
+res.aov <- aov(y ~ x$CreditScore+x$Balance+x$EstimatedSalary, data = x_train)
+summary(res.aov)
+```
+
+# Linear Regression
+```{r}
+set.seed(1) 
+options(scipen = 100)
+linear.model <- lm(y ~ x$CreditScore + x$Balance + x$EstimatedSalary, data = x_train)
+summary(linear.model)
+prediction.lm <- predict(linear.model, newdata=x_test)
+prediction.lm
+prediction.lm <- ifelse(prediction.lm>0.5,1,0)
+linear.prediction.lm <- mean(prediction.lm!=x_test$Exited)
+print(paste('Accuracy',1-linear.prediction.lm))
+```
+
+# Logistic Regression
+```{r}
+set.seed(1) 
+mylogit <- glm(Exited ~ ., data = x_train, family = binomial(link='logit'))
+summary(mylogit)
+```
+
+
+# confint(mylogit)
+# confint.default(mylogit)
+# exp(coef(mylogit))
+```{r}
+log_pred <- predict(mylogit, newdata = x_test)
+tab_log <- table(x_test$Exited,log_pred)
+tab_log
+log_pred <- ifelse(log_pred>0.5,1,0)
+log_pred_res <- mean(log_pred!= x_test$Exited)
+print(paste('Accuracy', 1-log_pred_res))
+```
+
+# KNN
+```{r}
+set.seed(1) 
+```
+
+# nrow(x_train)
+```{r}
+x.train.target<- x[1:7000,10]
+x.test.target<- x[7001:10000,10]
+knn_model <- knn(x_train,x_test,cl=x.train.target,k=13)
+summary(knn_model)
+tab <- table(knn_model,x.test.target)
+tab
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+accuracy(tab)
+```
+```{r}
+#install.packages('factoextra')
+library(naivebayes)
+```
+
+# Naive Bayes
+```{r}
+set.seed(1) 
+NBclassfier=naive_bayes(as.factor(Exited) ~ ., data=x_train)
+print(NBclassfier)
+NB_Predictions <- predict(NBclassfier, x_test)
+tab_naive <- table(NB_Predictions,x_test$Exited)
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+accuracy(tab_naive)
+```
+
+# Decision Tree
+```{r}
+set.seed(1) 
+fit <- rpart(y~x$CreditScore+x$Gender+x$Age+x$Tenure+x$Balance+x$NumOfProducts+x$HasCrCard+x$IsActiveMember+x$EstimatedSalary, data = x_train, method = 'class')
+fit <- rpart(as.factor(x_train$Exited) ~ ., data = x_train, method = 'class')
+rpart.plot(fit, extra = 106)
+predict_unseen <-predict(fit, x_test, type = 'class')
+table_mat <- table(x_test$Exited, predict_unseen)
+table_mat
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+accuracy(table_mat)
+library(party)
+fit <- ctree(as.factor(x_train$Exited) ~ ., data = x_train)
+plot(fit, main="Conditional Inference Tree for Churn Model")
+predict_unseen <- predict(fit, x_test)
+table_mat <- table(x_test$Exited, predict_unseen)
+table_mat
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+accuracy(table_mat)
+mean(predict_unseen == x_test$Exited)
+```
+
+# Random Forest
+```{r}
+set.seed(1) 
+randomforest.model <- randomForest(as.factor(x_train$Exited) ~ ., data = x_train, importance = TRUE)
+randomforest.model
+plot(randomforest.model)
+randomforest.model_learnt_mtry2 <- randomForest(as.factor(x_train$Exited) ~ ., data = x_train, ntree = 200, mtry = 2, importance = TRUE)
+print(randomforest.model_learnt_mtry2)
+plot(randomforest.model_learnt_mtry2)
+randomforest.model_learnt_mtry4 <- randomForest(as.factor(x_train$Exited) ~ ., data = x_train, ntree = 200, mtry = 4, importance = TRUE)
+randomforest.model_learnt_mtry4
+randomforest.model_learnt_mtry7 <- randomForest(as.factor(x_train$Exited) ~ ., data = x_train, ntree = 200, mtry = 7, importance = TRUE)
+randomforest.model_learnt_mtry7
+plot(randomforest.model_learnt_mtry7)
+predTest <- predict(randomforest.model_learnt_mtry2,x_test)
+predicted_table <- table(observed=x_test$Exited,predicted=predTest)
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+accuracy(predicted_table)
+mean(predTest == x_test$Exited) 
+importance(randomforest.model_learnt_mtry2)        
+varImpPlot(randomforest.model_learnt_mtry2) 
+```
+
+```{r}
+library(factoextra)
+```
+
+# Kmeans Clustering
+```{r}
+set.seed(1411)
+df <- x_train
+fviz_nbclust(scale(df), kmeans, method = "silhouette") + labs(subtitle = "Silhouette method")
+```
+
+# Creating 3 clusters
+```{r}
+kmean1 = kmeans(df[ ,], 3)
+kmean1
+plot(df[,], col=kmean1$cluster)
+points(kmean1$centers[, c("CreditScore","Age","Balance", "EstimatedSalary")],
+       col="white", pch="*", cex=5)
+kmean1$centers
+```
+
+#Regularization Techniques
+```{r}
+model_x <- model.matrix(x$Exited~.,x)[,-1]
+Exited <- (x$Exited)
+```
+
+# Generating a general linear regression model
+```{r}
+model_lreg = (lm(Exited ~., data= x))
+summary(model_lreg)
+par(mfrow=c(3,5))
+for(i in 1:10){
+  plot(as.matrix(x_data[,i]), Exited,xlab = i)
+  abline(lm(Exited~as.matrix(x_data[,i])),col = "blue")
+}
+```
+```{r}
+#install.packages('glmnet')
+library(glmnet)
+```
+
+# Generating a LASSO model for feature reduction
+```{r}
+lasso_fit <- glmnet(model_x,Exited, alpha=1)
+length(lasso_fit$lambda)
+coef(lasso_fit)[,50]
+par(mfrow=c(1,1))
+plot(lasso_fit ,xvar="lambda",main="Lasso (alpha=1)")
+```
+
+# Generating a RIDGE MODEL
+```{r}
+ridge_fit <- glmnet(model_x,Exited,alpha=0)
+plot(ridge_fit,xvar="lambda",label=TRUE)
+
+ridge_cv <- cv.glmnet(model_x,Exited,alpha=0)
+plot(ridge_cv)
+
+set.seed(141197)
+train=sample(1:nrow(model_x),size=0.7*nrow(model_x)) 
+test=(-train)
+fit_training <- glmnet(model_x[train,],Exited[train],alpha=1,lambda=100)
+cv_training <- cv.glmnet(model_x[train,],Exited[train],alpha=1) 
+par(mfrow=c(1,1))
+plot(cv_training)
+
+cv_bestlam <- cv_training$lambda.min
+predict(lasso_fit,type ="coefficients",s=cv_bestlam)[1:10,] 
+```
+
+# Genrating REGRESSION SUMMARY
+```{r}
+reg_fit <- regsubsets(Exited~., data = x,
+                      nvmax = 19)
+reg_summary <- summary(reg_fit)
+names(reg_summary)
+plot(reg_summary$rss, xlab="No. of variables", ylab="RSS",main = "RSS for Exiters")
+which.min(reg_summary$rss)
+```
+
+# References
+<div id="refs">@R-Career;@R-Action;@R-Cran;@R-Material1;@R-Material2;@R-Material3</div>
+
+# Appendix
+```{r code=readLines(knitr::purl('/Users/abidikshit/R_Projects/ALY6015/FinalProject/Group1_FinalProject_ALY6015.Rmd', documentation = 0)), eval = FALSE}
+```
+
